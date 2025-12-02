@@ -1,393 +1,162 @@
-const { app, BrowserWindow, ipcMain, Menu, dialog, session } = require('electron');
-const path = require('path');
-const fs = require('fs');
+const { app, ipcMain, session } = require('electron');
+const SettingsManager = require('./settings-manager');
+const BraveShieldsManager = require('./brave-shields');
+const WindowManager = require('./window-manager');
 
-// Settings file path
-const settingsPath = path.join(app.getPath('userData'), 'settings.json');
+/**
+ * Main Process Entry Point
+ * 
+ * Responsibilities:
+ * - Initialize SettingsManager on app ready
+ * - Initialize BraveShieldsManager with session
+ * - Create main window using WindowManager
+ * - Set up IPC handlers for get-settings and save-settings
+ * - Handle app lifecycle events (quit, window-all-closed)
+ */
 
-const { ElectronBlocker } = require('@ghostery/adblocker-electron');
-const fetch = require('cross-fetch');
+// Component instances
+let settingsManager = null;
+let braveShieldsManager = null;
+let windowManager = null;
 
-// Default settings
-let settings = {
-  fadeOutDuration: 15,
-  fadeInDuration: 15,
-  isEnabled: false,
-  skipSilence: false
-};
-
-// Check and update Ghostery filter lists
-async function checkAndUpdateGhosteryFilters() {
+/**
+ * Initialize BraveShieldsManager with shared session partition
+ */
+async function initializeBraveShields() {
   try {
-    console.log('[Ad Blocker] Checking for Ghostery filter updates...');
-    
-    // Fetch the latest filter lists from Ghostery
-    const response = await fetch('https://cdn.ghostery.com/adblocker/databases/full-adblocker.db', {
-      method: 'HEAD'
-    });
-    
-    if (response.ok) {
-      console.log('[Ad Blocker] ✓ Ghostery filters are up to date');
-      return true;
-    }
-  } catch (error) {
-    console.warn('[Ad Blocker] Could not verify Ghostery filters:', error.message);
-  }
-  
-  return false;
-}
-
-// Brave-style ad blocking with multiple filter lists
-async function setupAdBlocking() {
-  try {
+    console.log('[Main] Initializing Brave Shields...');
     const youtubeSess = session.fromPartition('persist:youtube-shared');
-    
-    console.log('[Ad Blocker] Initializing ad blocker...');
-    
-    // Check for updates first
-    await checkAndUpdateGhosteryFilters();
-    
-    // Use Ghostery's comprehensive blocker (includes EasyList, EasyPrivacy, etc.)
-    const blocker = await ElectronBlocker.fromPrebuiltAdsAndTracking(fetch);
-    blocker.enableBlockingInSession(youtubeSess);
-    console.log('[Ad Blocker] ✓ Ghostery blocker enabled');
-    
-    // Add custom filter rules for YouTube-specific ads
-    setupCustomFilters(youtubeSess);
-    
-    // Block third-party scripts and trackers
-    setupPrivacyProtection(youtubeSess);
-    
-    console.log('[Ad Blocker] ✓ Ad blocking fully initialized');
+    braveShieldsManager = new BraveShieldsManager(youtubeSess);
+    await braveShieldsManager.initialize();
+    console.log('[Main] ✓ Brave Shields initialized');
   } catch (error) {
-    console.error('[Ad Blocker] Failed to enable ad blocker:', error);
+    console.error('[Main] Failed to initialize Brave Shields:', error);
   }
 }
 
-// Setup custom filters for YouTube ads (similar to uBlock Origin custom rules)
-function setupCustomFilters(sess) {
-  // YouTube-specific ad patterns - ONLY block obvious ad domains
-  const youtubeAdPatterns = [
-    'doubleclick.net',
-    'googleadservices.com',
-    'googlesyndication.com'
-  ];
-  
-  sess.webRequest.onBeforeRequest((details, callback) => {
-    const url = details.url.toLowerCase();
+/**
+ * Initialize SettingsManager
+ */
+function initializeSettings() {
+  try {
+    console.log('[Main] Initializing Settings Manager...');
+    settingsManager = new SettingsManager();
+    console.log('[Main] ✓ Settings Manager initialized');
+  } catch (error) {
+    console.error('[Main] Failed to initialize Settings Manager:', error);
+  }
+}
+
+/**
+ * Initialize WindowManager and create main window
+ */
+function initializeWindows() {
+  try {
+    console.log('[Main] Initializing Window Manager...');
+    windowManager = new WindowManager();
     
-    // Only block obvious ad serving domains
-    for (const pattern of youtubeAdPatterns) {
-      if (url.includes(pattern)) {
-        console.log('[Brave Shields] Blocked ad domain:', pattern);
-        callback({ cancel: true });
-        return;
+    // Create main window
+    const mainWindow = windowManager.createMainWindow();
+    console.log('[Main] ✓ Main window created');
+    
+    // Create application menu with handlers
+    windowManager.createMenu({
+      onSettings: () => {
+        windowManager.createSettingsWindow();
+      },
+      onLogin: () => {
+        windowManager.createLoginWindow(() => {
+          // On successful login, reload webviews
+          const main = windowManager.getMainWindow();
+          if (main) {
+            main.webContents.send('reload-webviews');
+          }
+        });
+      },
+      onExit: () => {
+        app.quit();
       }
-    }
+    });
+    console.log('[Main] ✓ Application menu created');
     
-    callback({ cancel: false });
-  });
-  
-  console.log('[Brave Shields] ✓ Custom YouTube filters enabled');
-}
-
-// Setup privacy protection (block trackers and fingerprinting)
-function setupPrivacyProtection(sess) {
-  // Remove tracking headers
-  sess.webRequest.onBeforeSendHeaders((details, callback) => {
-    const headers = details.requestHeaders;
-    
-    // Remove tracking headers
-    delete headers['X-Client-Data'];
-    delete headers['X-Goog-Visitor-Id'];
-    
-    // Add privacy headers
-    headers['DNT'] = '1'; // Do Not Track
-    headers['Sec-GPC'] = '1'; // Global Privacy Control
-    
-    callback({ requestHeaders: headers });
-  });
-  
-  // Set privacy-focused user agent
-  sess.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-  
-  console.log('[Brave Shields] ✓ Privacy protection enabled');
-}
-
-// Load settings from file
-function loadSettings() {
-  try {
-    if (fs.existsSync(settingsPath)) {
-      const data = fs.readFileSync(settingsPath, 'utf8');
-      settings = { ...settings, ...JSON.parse(data) };
-    }
+    return mainWindow;
   } catch (error) {
-    console.error('Failed to load settings:', error);
+    console.error('[Main] Failed to initialize windows:', error);
+    throw error;
   }
 }
 
-// Save settings to file
-function saveSettings() {
-  try {
-    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
-  } catch (error) {
-    console.error('Failed to save settings:', error);
-  }
-}
-
-let mainWindow;
-let settingsWindow;
-
-// Create application menu
-function createMenu() {
-  const template = [
-    {
-      label: 'File',
-      submenu: [
-        {
-          label: 'Crossfade Settings',
-          accelerator: 'Ctrl+,',
-          click: () => {
-            createSettingsWindow();
-          }
-        },
-        { type: 'separator' },
-        {
-          label: 'Login with Chrome',
-          click: async () => {
-            await loginWithChrome();
-          }
-        },
-        { type: 'separator' },
-        {
-          label: 'Exit',
-          accelerator: 'Ctrl+Q',
-          click: () => {
-            app.quit();
-          }
-        }
-      ]
-    },
-    {
-      label: 'View',
-      submenu: [
-        { role: 'reload' },
-        { role: 'forceReload' },
-        { type: 'separator' },
-        { role: 'toggleDevTools' },
-        { type: 'separator' },
-        { role: 'resetZoom' },
-        { role: 'zoomIn' },
-        { role: 'zoomOut' }
-      ]
-    },
-    {
-      label: 'Help',
-      submenu: [
-        {
-          label: 'About',
-          click: () => {
-            dialog.showMessageBox(mainWindow, {
-              type: 'info',
-              title: 'YouTube Music Crossfade',
-              message: 'YouTube Music Crossfade v1.0.0',
-              detail: 'Seamless crossfading between two YouTube Music players.\n\nCreated with Electron.'
-            });
-          }
-        }
-      ]
+/**
+ * Set up IPC handlers for communication with renderer process
+ */
+function setupIpcHandlers() {
+  // Handler for getting current settings
+  ipcMain.handle('get-settings', () => {
+    if (!settingsManager) {
+      console.error('[Main] SettingsManager not initialized');
+      return null;
     }
-  ];
-
-  const menu = Menu.buildFromTemplate(template);
-  Menu.setApplicationMenu(menu);
-}
-
-// Create settings window
-function createSettingsWindow() {
-  if (settingsWindow) {
-    settingsWindow.focus();
-    return;
-  }
-
-  settingsWindow = new BrowserWindow({
-    width: 450,
-    height: 600,
-    resizable: false,
-    parent: mainWindow,
-    modal: true,
-    backgroundColor: '#181a20',
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-      preload: path.join(__dirname, 'preload.js')
-    },
-    title: 'Crossfade Settings'
+    return settingsManager.getSettings();
   });
 
-  settingsWindow.loadFile('settings.html');
-  settingsWindow.setMenu(null);
-
-  settingsWindow.on('closed', () => {
-    settingsWindow = null;
-  });
-}
-
-// Login with Chrome session
-// Login with shared session
-async function loginWithChrome() {
-  const chromeWindow = new BrowserWindow({
-    width: 800,
-    height: 600,
-    parent: mainWindow,
-    modal: true,
-    backgroundColor: '#fff',
-    webPreferences: {
-      partition: 'persist:youtube-shared'
-    },
-    title: 'Login to YouTube Music'
-  });
-
-  chromeWindow.loadURL('https://accounts.google.com');
-
-  chromeWindow.webContents.on('did-navigate', (event, url) => {
-    if (url.includes('music.youtube.com') || url.includes('myaccount.google.com')) {
-      dialog.showMessageBox(mainWindow, {
-        type: 'info',
-        title: 'Login Successful',
-        message: 'You are now logged in!',
-        detail: 'Your session is active. Both players will be logged in automatically. You can close this window.'
-      });
-
-      // Send message to reload webviews
-      if (mainWindow) {
-        mainWindow.webContents.send('reload-webviews');
-      }
-    }
-  });
-}
-
-function createWindow() {
-  // Load settings before creating window
-  loadSettings();
-
-  // Create application menu
-  createMenu();
-
-  mainWindow = new BrowserWindow({
-    width: 1600,
-    height: 900,
-    minWidth: 1000,
-    minHeight: 600,
-    backgroundColor: '#181a20',
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-      webviewTag: true,
-      preload: path.join(__dirname, 'preload.js')
-    },
-    icon: path.join(__dirname, 'icon.png'),
-    title: 'YouTube Music Crossfade',
-    autoHideMenuBar: false
-  });
-
-  mainWindow.loadFile('index.html');
-
-  // Open DevTools in development (optional)
-  // mainWindow.webContents.openDevTools();
-
-  mainWindow.on('closed', () => {
-    mainWindow = null;
-  });
-}
-
-// Check for app updates
-async function checkForUpdates() {
-  try {
-    console.log('[Updates] Checking for app updates...');
-    
-    // In a real app, you would check against a version server
-    // For now, we'll just check if Ghostery filters need updating
-    const filtersUpdated = await checkAndUpdateGhosteryFilters();
-    
-    if (!filtersUpdated) {
-      console.log('[Updates] Ghostery filters may need updating');
-      return {
-        hasUpdates: true,
-        message: 'Ad blocker filters may need updating. Would you like to update?',
-        type: 'filters'
-      };
+  // Handler for saving settings
+  ipcMain.handle('save-settings', (_event, newSettings) => {
+    if (!settingsManager) {
+      console.error('[Main] SettingsManager not initialized');
+      return null;
     }
     
-    return {
-      hasUpdates: false,
-      message: 'Everything is up to date',
-      type: 'none'
-    };
-  } catch (error) {
-    console.error('[Updates] Error checking for updates:', error);
-    return {
-      hasUpdates: false,
-      message: 'Could not check for updates',
-      type: 'error'
-    };
-  }
+    try {
+      settingsManager.saveSettings(newSettings);
+      return settingsManager.getSettings();
+    } catch (error) {
+      console.error('[Main] Failed to save settings:', error);
+      return null;
+    }
+  });
+
+  console.log('[Main] ✓ IPC handlers registered');
 }
 
-// IPC Handlers
-ipcMain.handle('get-settings', () => {
-  return settings;
-});
-
-ipcMain.handle('save-settings', (event, newSettings) => {
-  settings = { ...settings, ...newSettings };
-  saveSettings();
-  return settings;
-});
-
-ipcMain.handle('check-for-updates', async () => {
-  return await checkForUpdates();
-});
-
-// App lifecycle
+/**
+ * App lifecycle: whenReady
+ * Initialize all components and create the main window
+ */
 app.whenReady().then(async () => {
-  setupAdBlocking();
-  createWindow();
+  console.log('[Main] App ready, initializing components...');
   
-  // Check for updates after a short delay
-  setTimeout(async () => {
-    const updateInfo = await checkForUpdates();
-    if (updateInfo.hasUpdates && mainWindow) {
-      dialog.showMessageBox(mainWindow, {
-        type: 'info',
-        title: 'Update Available',
-        message: updateInfo.message,
-        buttons: ['Update Now', 'Later'],
-        defaultId: 0
-      }).then((result) => {
-        if (result.response === 0) {
-          console.log('[Updates] User chose to update');
-          // In a real app, trigger the update process here
-          dialog.showMessageBox(mainWindow, {
-            type: 'info',
-            title: 'Updating',
-            message: 'Updating ad blocker filters...',
-            buttons: ['OK']
-          });
-        }
-      });
-    }
-  }, 2000);
+  // Initialize SettingsManager
+  initializeSettings();
+  
+  // Initialize BraveShieldsManager with session
+  await initializeBraveShields();
+  
+  // Set up IPC handlers
+  setupIpcHandlers();
+  
+  // Initialize WindowManager and create main window
+  initializeWindows();
+  
+  console.log('[Main] ✓ Application initialization complete');
 });
 
+/**
+ * App lifecycle: window-all-closed
+ * Quit the app when all windows are closed (except on macOS)
+ */
 app.on('window-all-closed', () => {
+  // On macOS, apps typically stay open until explicitly quit
   if (process.platform !== 'darwin') {
     app.quit();
   }
 });
 
+/**
+ * App lifecycle: activate
+ * Recreate window when dock icon is clicked (macOS)
+ */
 app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow();
+  if (!windowManager || !windowManager.getMainWindow()) {
+    initializeWindows();
   }
 });
