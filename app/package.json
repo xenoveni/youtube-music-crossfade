@@ -1,0 +1,28 @@
+{
+    "name": "youtube-music-crossfade-app",
+    "version": "1.0.0",
+    "description": "Desktop app for seamless crossfading between YouTube Music players",
+    "main": "main.js",
+    "scripts": {
+        "start": "electron .",
+        "build": "electron-builder"
+    },
+    "author": "",
+    "license": "MIT",
+    "devDependencies": {
+        "electron": "^28.0.0",
+        "electron-builder": "^24.9.1"
+    },
+    "build": {
+        "appId": "com.ytmusic.crossfade",
+        "productName": "YouTube Music Crossfade",
+        "win": {
+            "target": "nsis",
+            "icon": "build/icon.ico"
+        },
+        "files": [
+            "**/*",
+            "!node_modules/**/*"
+        ]
+    }
+}

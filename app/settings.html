@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crossfade Settings</title>
+    <link rel="stylesheet" href="settings-styles.css">
+</head>
+
+<body>
+    <div class="settings-container">
+        <h1 class="settings-title">Crossfade Settings</h1>
+
+        <!-- Enable Toggle -->
+        <div class="setting-group">
+            <div class="setting-label-row">
+                <span class="setting-label">Enable Crossfade</span>
+                <label class="toggle">
+                    <input type="checkbox" id="enableToggle">
+                    <span class="slider-toggle"></span>
+                </label>
+            </div>
+            <p class="setting-description">Automatically crossfade between the two players when a song is ending</p>
+        </div>
+
+        <!-- Fade Out Duration -->
+        <div class="setting-group">
+            <div class="setting-label-row">
+                <span class="setting-label">Fade Out Duration</span>
+                <span class="setting-value" id="fadeOutValue">15s</span>
+            </div>
+            <input type="range" class="slider" id="fadeOutSlider" min="5" max="30" value="15">
+            <div class="slider-labels">
+                <span>5s</span>
+                <span>30s</span>
+            </div>
+            <p class="setting-description">Time before song ends to start fading out</p>
+        </div>
+
+        <!-- Fade In Duration -->
+        <div class="setting-group">
+            <div class="setting-label-row">
+                <span class="setting-label">Fade In Duration</span>
+                <span class="setting-value" id="fadeInValue">15s</span>
+            </div>
+            <input type="range" class="slider" id="fadeInSlider" min="5" max="30" value="15">
+            <div class="slider-labels">
+                <span>5s</span>
+                <span>30s</span>
+            </div>
+            <p class="setting-description">Time to fade in the next song</p>
+        </div>
+
+        <!-- Info Box -->
+        <div class="info-box">
+            <h3>How it works</h3>
+            <p>The crossfade monitors both players. When a song reaches the fade-out time before its end,
+                it automatically starts playing the other player and smoothly transitions between them.</p>
+        </div>
+
+        <!-- Close Button -->
+        <button class="close-button" id="closeButton">Close</button>
+    </div>
+
+    <script src="settings.js"></script>
+</body>
+
+</html>

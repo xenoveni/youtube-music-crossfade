@@ -1,0 +1,12 @@
+1. Ad blocking is not working. Analyze other ways to add it or use the existing adblock plugin from here:
+https://chromewebstore.google.com/detail/Adblock%20for%20Youtube%E2%84%A2/cmedhionkhpnakcndndgjdbohmhepckk
+Find the best way to avoid ads at all costs!
+2. I can see the Player active and crossfade messages at the bottom, I like them. There are 2 messages at 
+the bottom, can you change one of them to show the time until crossfade begins? With a text like "Crossfade 
+in x seconds."
+3. Add 2 more options. A button at the bottom, next to the informative texts to start crossfade now. Apply 
+the crossfade function as soon as the button is pressed.
+Second function, can you add an option in the crossfade settings to detect the wavelength of the music 
+and apply the crossfade the x seconds I have chosen before the and of music, not before the end of the song. 
+For example, some songs end and there is a large pause at the end. I want to avoid this and crossfade while 
+music is still playing. Add this as a toggle in the settings for testing

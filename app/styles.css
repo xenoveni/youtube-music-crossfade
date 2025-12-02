@@ -1,0 +1,189 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    background: #181a20;
+    color: #f3f3f3;
+    overflow: hidden;
+    height: 100vh;
+}
+
+/* Main Content - Full Screen */
+.main-content-fullscreen {
+    width: 100%;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Split Container */
+.split-container {
+    flex: 1;
+    display: flex;
+    position: relative;
+}
+
+.player-section {
+    flex: 1;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    background: #000;
+}
+
+/* Player Header with Navigation */
+.player-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    background: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    z-index: 10;
+}
+
+.player-label {
+    color: #fff;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 4px 8px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.player-section.active .player-label {
+    background: rgba(26, 115, 232, 0.8);
+    box-shadow: 0 2px 8px rgba(26, 115, 232, 0.4);
+}
+
+/* Navigation Controls */
+.navigation-controls {
+    display: flex;
+    gap: 4px;
+}
+
+.nav-btn {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 6px;
+    color: #f3f3f3;
+    cursor: pointer;
+    padding: 6px 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
+
+.nav-btn:hover {
+    background: rgba(26, 115, 232, 0.3);
+    border-color: rgba(26, 115, 232, 0.5);
+}
+
+.nav-btn:active {
+    transform: scale(0.95);
+}
+
+.nav-btn svg {
+    display: block;
+}
+
+webview {
+    width: 100%;
+    height: 100%;
+    border: none;
+}
+
+/* Divider */
+.divider {
+    width: 2px;
+    background: linear-gradient(180deg, transparent 0%, #1a73e8 50%, transparent 100%);
+    position: relative;
+}
+
+.divider::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 6px;
+    height: 40px;
+    background: #1a73e8;
+    border-radius: 3px;
+    box-shadow: 0 0 12px rgba(26, 115, 232, 0.6);
+}
+
+/* Status Bar */
+.status-bar {
+    height: 36px;
+    background: linear-gradient(180deg, #1a1b21 0%, #23242b 100%);
+    border-top: 1px solid #2a2b33;
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    z-index: 100;
+}
+
+.status-content {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    width: 100%;
+}
+
+.status-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #6a6b73;
+    transition: all 0.3s;
+}
+
+.status-dot.active {
+    background: #34a853;
+    box-shadow: 0 0 10px rgba(52, 168, 83, 0.6);
+    animation: pulse 2s infinite;
+}
+
+.status-dot.crossfading {
+    background: #1a73e8;
+    box-shadow: 0 0 10px rgba(26, 115, 232, 0.6);
+    animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+
+    0%,
+    100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+
+    50% {
+        opacity: 0.7;
+        transform: scale(1.3);
+    }
+}
+
+.status-text {
+    font-size: 12px;
+    font-weight: 500;
+    color: #e0e0e0;
+}
+
+.active-player-status {
+    font-size: 11px;
+    color: #a0a0b0;
+}
