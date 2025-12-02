@@ -24,5 +24,9 @@
             "**/*",
             "!node_modules/**/*"
         ]
+    },
+    "dependencies": {
+        "@ghostery/adblocker-electron": "^2.12.5",
+        "cross-fetch": "^4.1.0"
     }
 }

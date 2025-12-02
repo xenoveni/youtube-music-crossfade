@@ -5,12 +5,30 @@ const fs = require('fs');
 // Settings file path
 const settingsPath = path.join(app.getPath('userData'), 'settings.json');
 
+const { ElectronBlocker } = require('@ghostery/adblocker-electron');
+const fetch = require('cross-fetch');
+
 // Default settings
 let settings = {
   fadeOutDuration: 15,
   fadeInDuration: 15,
-  isEnabled: false
+  isEnabled: false,
+  skipSilence: false
 };
+
+
+
+// Set up ad blocking for YouTube
+async function setupAdBlocking() {
+  try {
+    const blocker = await ElectronBlocker.fromPrebuiltAdsAndTracking(fetch);
+    const youtubeSess = session.fromPartition('persist:youtube-shared');
+    blocker.enableBlockingInSession(youtubeSess);
+    console.log('Ghostery AdBlocker enabled for YouTube Music');
+  } catch (error) {
+    console.error('Failed to enable AdBlocker:', error);
+  }
+}
 
 // Load settings from file
 function loadSettings() {
@@ -209,31 +227,6 @@ ipcMain.handle('save-settings', (event, newSettings) => {
   saveSettings();
   return settings;
 });
-
-// Set up ad blocking for YouTube
-function setupAdBlocking() {
-  const youtubeSess = session.fromPartition('persist:youtube-shared');
-
-  // List of ad/tracking domains to block
-  const adDomains = [
-    '*://*.doubleclick.net/*',
-    '*://*.googlesyndication.com/*',
-    '*://*.googleadservices.com/*',
-    '*://pagead2.googlesyndication.com/*',
-    '*://*.youtube.com/api/stats/ads*',
-    '*://*.youtube.com/pagead/*',
-    '*://*.youtube.com/ptracking*',
-    '*://*.youtube.com/api/stats/qoe*',
-    '*://www.googletagmanager.com/*',
-    '*://www.google-analytics.com/*'
-  ];
-
-  youtubeSess.webRequest.onBeforeRequest({ urls: adDomains }, (details, callback) => {
-    callback({ cancel: true });
-  });
-
-  console.log('Ad blocking enabled for YouTube Music');
-}
 
 // App lifecycle
 app.whenReady().then(() => {
