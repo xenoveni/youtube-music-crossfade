@@ -43,7 +43,7 @@ async function init() {
     setupEventListeners();
 
     // Update status
-    updateStatusUI('ready', 'Initialized - ready to crossfade');
+    updateStatusUI('ready', 'Ready - press play to start');
 }
 
 // Set up event listeners

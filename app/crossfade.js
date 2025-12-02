@@ -172,16 +172,34 @@ class CrossfadeManager {
         return await this.executeInWebview(webview, code);
     }
 
-    // Skip to next song
+    // Skip to next song and keep it paused
     async skipToNext(webview) {
         const code = `
             (function() {
+                // First, ensure audio is paused and at volume 0
+                const audio = document.querySelector('audio') || document.querySelector('video');
+                if (audio) {
+                    audio.volume = 0;
+                    audio.pause();
+                }
+                
+                // Then click next button
                 const nextButton = document.querySelector('.next-button') ||
                                  document.querySelector('[aria-label*="Next"]') ||
                                  document.querySelector('button[title*="Next"]') ||
                                  document.querySelector('.ytp-next-button');
                 if (nextButton) {
                     nextButton.click();
+                    
+                    // Immediately pause the new song when it loads
+                    setTimeout(() => {
+                        const audio = document.querySelector('audio') || document.querySelector('video');
+                        if (audio) {
+                            audio.volume = 0;
+                            audio.pause();
+                        }
+                    }, 100);
+                    
                     return true;
                 }
                 return false;
@@ -243,16 +261,29 @@ class CrossfadeManager {
 
     // Prepare inactive player for next crossfade
     async prepareInactivePlayer(webview, playerNum) {
-        // Wait a bit for the song to finish
+        // Set volume to 0 FIRST to avoid hearing the next song
+        await this.setVolume(webview, 0);
+        
+        // Pause immediately
+        await this.pause(webview);
+        
+        // Wait a bit for the current song to finish
         await new Promise(resolve => setTimeout(resolve, 1000));
         
-        // Skip to next song
+        // Skip to next song (it will load paused at volume 0)
         await this.skipToNext(webview);
         
-        // Wait for next song to load
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        // Wait for next song to start loading
+        await new Promise(resolve => setTimeout(resolve, 500));
         
-        // Set volume to 0 and pause
+        // Ensure volume is 0 and player is paused
+        await this.setVolume(webview, 0);
+        await this.pause(webview);
+        
+        // Wait a bit more for the song to fully load
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        
+        // Final check: ensure volume is 0 and paused
         await this.setVolume(webview, 0);
         await this.pause(webview);
         
@@ -274,11 +305,19 @@ class CrossfadeManager {
 
         if (!info1 || !info2) return;
 
-        // If both are playing, pause the one that should be inactive
-        if (info1.isPlaying && info2.isPlaying) {
+        // If both are playing, pause the one that should NOT be the leader
+        // But only if we're not in the middle of a crossfade
+        if (info1.isPlaying && info2.isPlaying && !this.crossfadeActive) {
+            // Determine which one to pause based on current leader
             if (this.currentLeader === 1) {
+                // Player 1 is leader, pause player 2
+                await this.pause(this.webview2);
+            } else if (this.currentLeader === 2) {
+                // Player 2 is leader, pause player 1
                 await this.pause(this.webview1);
             } else {
+                // No leader set yet, let player 1 be the leader
+                this.currentLeader = 1;
                 await this.pause(this.webview2);
             }
             return;
@@ -302,7 +341,7 @@ class CrossfadeManager {
             this.currentLeader = 2;
         } else {
             // Neither playing
-            this.updateStatus('ready', 'Ready - waiting for playback');
+            this.updateStatus('ready', 'Ready - press play to start');
             this.stopCountdown();
             return;
         }
@@ -312,6 +351,11 @@ class CrossfadeManager {
 
         // Check if we should trigger crossfade
         const timeUntilEnd = playingInfo.duration - playingInfo.currentTime;
+        
+        // Don't trigger if duration is invalid or too short
+        if (!playingInfo.duration || playingInfo.duration < 10) {
+            return;
+        }
         
         // Determine trigger point based on silence detection
         let triggerPoint = this.settings.fadeOutDuration;
@@ -323,7 +367,8 @@ class CrossfadeManager {
         if (timeUntilEnd <= triggerPoint && timeUntilEnd > 0) {
             this.updateCountdown(Math.ceil(timeUntilEnd));
             
-            if (timeUntilEnd <= triggerPoint && timeUntilEnd > 0) {
+            // Only trigger crossfade once when we hit the trigger point
+            if (timeUntilEnd <= triggerPoint && timeUntilEnd > (triggerPoint - 1)) {
                 await this.executeCrossfade(playingWebview, pausedWebview, playingNum, pausedNum);
             }
         } else {
