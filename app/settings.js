@@ -3,11 +3,13 @@
 let settings = {
     fadeOutDuration: 15,
     fadeInDuration: 15,
-    isEnabled: false
+    isEnabled: false,
+    detectSilence: false
 };
 
 // DOM Elements
 const enableToggle = document.getElementById('enableToggle');
+const detectSilenceToggle = document.getElementById('detectSilenceToggle');
 const fadeOutSlider = document.getElementById('fadeOutSlider');
 const fadeInSlider = document.getElementById('fadeInSlider');
 const fadeOutValue = document.getElementById('fadeOutValue');
@@ -25,6 +27,9 @@ async function init() {
 // Apply settings to UI
 function applySettings() {
     enableToggle.checked = settings.isEnabled;
+    if (detectSilenceToggle) {
+        detectSilenceToggle.checked = settings.detectSilence;
+    }
     fadeOutSlider.value = settings.fadeOutDuration;
     fadeInSlider.value = settings.fadeInDuration;
     fadeOutValue.textContent = `${settings.fadeOutDuration}s`;
@@ -47,6 +52,14 @@ function setupEventListeners() {
         settings.isEnabled = e.target.checked;
         saveSettings();
     });
+
+    // Detect silence toggle
+    if (detectSilenceToggle) {
+        detectSilenceToggle.addEventListener('change', (e) => {
+            settings.detectSilence = e.target.checked;
+            saveSettings();
+        });
+    }
 
     // Fade out slider
     fadeOutSlider.addEventListener('input', (e) => {

@@ -7,12 +7,15 @@ class CrossfadeManager {
         this.settings = {
             fadeOutDuration: 15,
             fadeInDuration: 15,
-            isEnabled: false
+            isEnabled: false,
+            detectSilence: false
         };
         this.crossfadeActive = false;
         this.currentLeader = 1; // Which player is currently active
         this.monitoringInterval = null;
         this.lastSongTitles = { 1: null, 2: null };
+        this.countdownInterval = null;
+        this.timeUntilCrossfade = 0;
     }
 
     // Initialize the crossfade manager
@@ -84,12 +87,28 @@ class CrossfadeManager {
                                         document.querySelector('.title');
                     const songTitle = titleElement ? titleElement.textContent.trim() : null;
 
+                    // Detect silence/low volume at end of track
+                    let hasEndingSilence = false;
+                    const timeRemaining = audio.duration - audio.currentTime;
+                    
+                    if (timeRemaining < 5 && timeRemaining > 0) {
+                        // Check if audio is very quiet (silence detection)
+                        const analyser = audio.analyser;
+                        if (analyser) {
+                            const dataArray = new Uint8Array(analyser.frequencyBinCount);
+                            analyser.getByteFrequencyData(dataArray);
+                            const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
+                            hasEndingSilence = average < 10; // Very quiet threshold
+                        }
+                    }
+
                     return {
                         currentTime: audio.currentTime || 0,
                         duration: audio.duration || 0,
                         isPlaying: !audio.paused,
                         volume: audio.volume * 100,
-                        songTitle: songTitle
+                        songTitle: songTitle,
+                        hasEndingSilence: hasEndingSilence
                     };
                 } catch (e) {
                     return null;
@@ -153,6 +172,24 @@ class CrossfadeManager {
         return await this.executeInWebview(webview, code);
     }
 
+    // Skip to next song
+    async skipToNext(webview) {
+        const code = `
+            (function() {
+                const nextButton = document.querySelector('.next-button') ||
+                                 document.querySelector('[aria-label*="Next"]') ||
+                                 document.querySelector('button[title*="Next"]') ||
+                                 document.querySelector('.ytp-next-button');
+                if (nextButton) {
+                    nextButton.click();
+                    return true;
+                }
+                return false;
+            })();
+        `;
+        return await this.executeInWebview(webview, code);
+    }
+
     // Execute crossfade from one player to another
     async executeCrossfade(fromWebview, toWebview, fromNum, toNum) {
         if (this.crossfadeActive) return;
@@ -169,6 +206,7 @@ class CrossfadeManager {
 
         // Update UI to show crossfading
         this.updateStatus('crossfading', `Crossfading to Player ${toNum}`);
+        this.stopCountdown();
 
         // Start the "to" player at 0 volume
         await this.setVolume(toWebview, 0);
@@ -185,8 +223,8 @@ class CrossfadeManager {
                 await this.setVolume(fromWebview, 0);
                 await this.setVolume(toWebview, 100);
 
-                // Wait for song to change, then pause the old player
-                this.waitForSongChange(fromWebview, fromNum);
+                // Prepare the old player for next crossfade
+                await this.prepareInactivePlayer(fromWebview, fromNum);
 
                 this.crossfadeActive = false;
                 this.currentLeader = toNum;
@@ -203,28 +241,29 @@ class CrossfadeManager {
         }, 50);
     }
 
-    // Wait for song to change, then pause
-    async waitForSongChange(webview, playerNum) {
-        const originalSong = this.lastSongTitles[playerNum];
-        let attempts = 0;
-        const maxAttempts = 30;
-
-        const checkInterval = setInterval(async () => {
-            attempts++;
-            const info = await this.getPlaybackInfo(webview);
-
-            if (info && info.songTitle && info.songTitle !== originalSong) {
-                // Song changed, pause it
-                clearInterval(checkInterval);
-                await this.pause(webview);
-                this.lastSongTitles[playerNum] = info.songTitle;
-            } else if (attempts >= maxAttempts) {
-                // Timeout, force pause
-                clearInterval(checkInterval);
-                await this.pause(webview);
-            }
-        }, 500);
+    // Prepare inactive player for next crossfade
+    async prepareInactivePlayer(webview, playerNum) {
+        // Wait a bit for the song to finish
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        // Skip to next song
+        await this.skipToNext(webview);
+        
+        // Wait for next song to load
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        // Set volume to 0 and pause
+        await this.setVolume(webview, 0);
+        await this.pause(webview);
+        
+        // Update last song title
+        const info = await this.getPlaybackInfo(webview);
+        if (info && info.songTitle) {
+            this.lastSongTitles[playerNum] = info.songTitle;
+        }
     }
+
+
 
     // Monitor playback and trigger crossfades
     async monitorPlayback() {
@@ -264,6 +303,7 @@ class CrossfadeManager {
         } else {
             // Neither playing
             this.updateStatus('ready', 'Ready - waiting for playback');
+            this.stopCountdown();
             return;
         }
 
@@ -272,8 +312,22 @@ class CrossfadeManager {
 
         // Check if we should trigger crossfade
         const timeUntilEnd = playingInfo.duration - playingInfo.currentTime;
-        if (timeUntilEnd <= this.settings.fadeOutDuration && timeUntilEnd > 0) {
-            await this.executeCrossfade(playingWebview, pausedWebview, playingNum, pausedNum);
+        
+        // Determine trigger point based on silence detection
+        let triggerPoint = this.settings.fadeOutDuration;
+        if (this.settings.detectSilence && playingInfo.hasEndingSilence) {
+            triggerPoint = Math.min(this.settings.fadeOutDuration, timeUntilEnd - 2);
+        }
+
+        // Update countdown
+        if (timeUntilEnd <= triggerPoint && timeUntilEnd > 0) {
+            this.updateCountdown(Math.ceil(timeUntilEnd));
+            
+            if (timeUntilEnd <= triggerPoint && timeUntilEnd > 0) {
+                await this.executeCrossfade(playingWebview, pausedWebview, playingNum, pausedNum);
+            }
+        } else {
+            this.stopCountdown();
         }
     }
 
@@ -294,6 +348,39 @@ class CrossfadeManager {
             clearInterval(this.monitoringInterval);
             this.monitoringInterval = null;
         }
+    }
+
+    // Trigger manual crossfade
+    async triggerManualCrossfade() {
+        if (this.crossfadeActive) return;
+
+        const info1 = await this.getPlaybackInfo(this.webview1);
+        const info2 = await this.getPlaybackInfo(this.webview2);
+
+        if (!info1 || !info2) return;
+
+        // Determine which player is playing
+        if (info1.isPlaying && !info2.isPlaying) {
+            await this.executeCrossfade(this.webview1, this.webview2, 1, 2);
+        } else if (info2.isPlaying && !info1.isPlaying) {
+            await this.executeCrossfade(this.webview2, this.webview1, 2, 1);
+        }
+    }
+
+    // Update countdown timer
+    updateCountdown(seconds) {
+        this.timeUntilCrossfade = seconds;
+        window.dispatchEvent(new CustomEvent('crossfade-countdown', {
+            detail: { seconds }
+        }));
+    }
+
+    // Stop countdown
+    stopCountdown() {
+        this.timeUntilCrossfade = 0;
+        window.dispatchEvent(new CustomEvent('crossfade-countdown', {
+            detail: { seconds: 0 }
+        }));
     }
 
     // Update status UI (to be implemented in renderer.js)

@@ -4,13 +4,16 @@ let crossfadeManager;
 let settings = {
     fadeOutDuration: 15,
     fadeInDuration: 15,
-    isEnabled: false
+    isEnabled: false,
+    detectSilence: false
 };
 
 // DOM Elements
 const statusDot = document.getElementById('statusDot');
 const statusText = document.getElementById('statusText');
 const activePlayerStatus = document.getElementById('activePlayerStatus');
+const countdownText = document.getElementById('countdownText');
+const crossfadeNowBtn = document.getElementById('crossfadeNowBtn');
 const player1Section = document.getElementById('player1Section');
 const player2Section = document.getElementById('player2Section');
 const webview1 = document.getElementById('webview1');
@@ -79,11 +82,24 @@ function setupEventListeners() {
         webview2.loadURL('https://music.youtube.com');
     });
 
+    // Crossfade Now button
+    crossfadeNowBtn.addEventListener('click', async () => {
+        if (crossfadeManager) {
+            await crossfadeManager.triggerManualCrossfade();
+        }
+    });
+
     // Listen for crossfade status updates
     window.addEventListener('crossfade-status', (e) => {
         const { state, message, activePlayer } = e.detail;
         updateStatusUI(state, message);
         updateActivePlayer(activePlayer);
+    });
+
+    // Listen for countdown updates
+    window.addEventListener('crossfade-countdown', (e) => {
+        const { seconds } = e.detail;
+        updateCountdown(seconds);
     });
 
     // Listen for reload-webviews message from main process
@@ -122,6 +138,17 @@ function updateActivePlayer(playerNum) {
         player1Section.classList.remove('active');
         player2Section.classList.remove('active');
         activePlayerStatus.textContent = 'No active player';
+    }
+}
+
+// Update countdown display
+function updateCountdown(seconds) {
+    if (seconds > 0) {
+        countdownText.textContent = `Crossfade in ${seconds}s`;
+        countdownText.style.display = 'inline';
+    } else {
+        countdownText.textContent = '';
+        countdownText.style.display = 'none';
     }
 }
 

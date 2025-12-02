@@ -16,18 +16,78 @@ let settings = {
   skipSilence: false
 };
 
-
-
-// Set up ad blocking for YouTube
+// Brave-style ad blocking with multiple filter lists
 async function setupAdBlocking() {
   try {
-    const blocker = await ElectronBlocker.fromPrebuiltAdsAndTracking(fetch);
     const youtubeSess = session.fromPartition('persist:youtube-shared');
+    
+    console.log('[Brave Shields] Initializing ad blocker with multiple filter lists...');
+    
+    // Method 1: Use Ghostery's comprehensive blocker (includes EasyList, EasyPrivacy, etc.)
+    const blocker = await ElectronBlocker.fromPrebuiltAdsAndTracking(fetch);
     blocker.enableBlockingInSession(youtubeSess);
-    console.log('Ghostery AdBlocker enabled for YouTube Music');
+    console.log('[Brave Shields] ✓ Ghostery blocker enabled (EasyList + EasyPrivacy + more)');
+    
+    // Method 2: Add custom filter rules for YouTube-specific ads
+    setupCustomFilters(youtubeSess);
+    
+    // Method 3: Block third-party scripts and trackers
+    setupPrivacyProtection(youtubeSess);
+    
+    console.log('[Brave Shields] ✓ Ad blocking fully initialized');
   } catch (error) {
-    console.error('Failed to enable AdBlocker:', error);
+    console.error('[Brave Shields] Failed to enable ad blocker:', error);
   }
+}
+
+// Setup custom filters for YouTube ads (similar to uBlock Origin custom rules)
+function setupCustomFilters(sess) {
+  // YouTube-specific ad patterns - ONLY block obvious ad domains
+  const youtubeAdPatterns = [
+    'doubleclick.net',
+    'googleadservices.com',
+    'googlesyndication.com'
+  ];
+  
+  sess.webRequest.onBeforeRequest((details, callback) => {
+    const url = details.url.toLowerCase();
+    
+    // Only block obvious ad serving domains
+    for (const pattern of youtubeAdPatterns) {
+      if (url.includes(pattern)) {
+        console.log('[Brave Shields] Blocked ad domain:', pattern);
+        callback({ cancel: true });
+        return;
+      }
+    }
+    
+    callback({ cancel: false });
+  });
+  
+  console.log('[Brave Shields] ✓ Custom YouTube filters enabled');
+}
+
+// Setup privacy protection (block trackers and fingerprinting)
+function setupPrivacyProtection(sess) {
+  // Remove tracking headers
+  sess.webRequest.onBeforeSendHeaders((details, callback) => {
+    const headers = details.requestHeaders;
+    
+    // Remove tracking headers
+    delete headers['X-Client-Data'];
+    delete headers['X-Goog-Visitor-Id'];
+    
+    // Add privacy headers
+    headers['DNT'] = '1'; // Do Not Track
+    headers['Sec-GPC'] = '1'; // Global Privacy Control
+    
+    callback({ requestHeaders: headers });
+  });
+  
+  // Set privacy-focused user agent
+  sess.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+  
+  console.log('[Brave Shields] ✓ Privacy protection enabled');
 }
 
 // Load settings from file
@@ -128,7 +188,7 @@ function createSettingsWindow() {
 
   settingsWindow = new BrowserWindow({
     width: 450,
-    height: 500,
+    height: 600,
     resizable: false,
     parent: mainWindow,
     modal: true,
