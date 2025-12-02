@@ -4,6 +4,9 @@ ytmusic-crossfade-trae.code-workspace
 # Cursor rules file
 .cursorrules
 
+# Kiro specs files
+.kiro
+
 # Node modules
 node_modules/
 app/node_modules/
