@@ -11,6 +11,7 @@ ytmusic-crossfade-trae.code-workspace
 node_modules/
 app/node_modules/
 plugin/node_modules/
+standalone/node_modules/
 
 # Electron build output
 app/dist/

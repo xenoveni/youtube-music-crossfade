@@ -12,6 +12,7 @@ class BraveShieldsManager {
     this.session = session;
     this.blocker = null;
     this.initialized = false;
+    this.refreshInterval = null;
   }
 
   /**
@@ -30,14 +31,49 @@ class BraveShieldsManager {
       // Setup custom YouTube-specific filters
       this.setupCustomFilters();
       
+      this.setupYouTubePlayerResponseFilter();
+      
       // Configure privacy protection headers
       this.setupPrivacyProtection();
+      
+      this.schedulePeriodicRefresh();
       
       this.initialized = true;
       console.log('[Brave Shields] ✓ Initialization complete');
     } catch (error) {
       console.error('[Brave Shields] Failed to initialize:', error);
       throw error;
+    }
+  }
+
+  async refreshBlocker() {
+    try {
+      if (this.blocker) {
+        this.blocker.disableBlockingInSession(this.session);
+      }
+      this.blocker = await ElectronBlocker.fromPrebuiltAdsAndTracking(fetch);
+      this.blocker.enableBlockingInSession(this.session);
+    } catch (e) {}
+  }
+
+  schedulePeriodicRefresh() {
+    if (this.refreshInterval) return;
+    const DAY = 24 * 60 * 60 * 1000;
+    this.refreshInterval = setInterval(async () => {
+      await this.refreshBlocker();
+    }, DAY);
+    if (this.refreshInterval.unref) this.refreshInterval.unref();
+  }
+
+  destroy() {
+    if (this.refreshInterval) {
+      clearInterval(this.refreshInterval);
+      this.refreshInterval = null;
+    }
+    if (this.blocker) {
+      try {
+        this.blocker.disableBlockingInSession(this.session);
+      } catch (_) {}
     }
   }
 
@@ -70,7 +106,6 @@ class BraveShieldsManager {
     this.session.webRequest.onBeforeRequest((details, callback) => {
       const url = details.url.toLowerCase();
       
-      // Block requests to known ad serving domains
       for (const pattern of youtubeAdPatterns) {
         if (url.includes(pattern)) {
           console.log('[Brave Shields] Blocked ad domain:', pattern);
@@ -79,10 +114,82 @@ class BraveShieldsManager {
         }
       }
       
+      try {
+        const u = new URL(details.url);
+        const host = u.hostname.toLowerCase();
+        const hasCtierA = u.searchParams.get('ctier') === 'A';
+        if (host.endsWith('googlevideo.com') && hasCtierA) {
+          console.log('[Brave Shields] Blocked googlevideo ad-tier');
+          callback({ cancel: true });
+          return;
+        }
+        const isYouTubeHost = host.endsWith('youtube.com') || host.endsWith('music.youtube.com');
+        const pathname = u.pathname.toLowerCase();
+        if (isYouTubeHost) {
+          if (pathname.includes('/pagead/') || pathname.includes('/ptracking') || pathname.includes('/youtubei/v1/ad')) {
+            console.log('[Brave Shields] Blocked YouTube ad endpoint');
+            callback({ cancel: true });
+            return;
+          }
+        }
+      } catch (_) {}
+      
       callback({ cancel: false });
     });
     
     console.log('[Brave Shields] ✓ Custom YouTube filters enabled');
+  }
+
+  setupYouTubePlayerResponseFilter() {
+    const isPlayerEndpoint = (url) => {
+      const u = url.toLowerCase();
+      return u.includes('/youtubei/v1/player') || u.includes('/youtubei/v1/next');
+    };
+    const stripAds = (obj) => {
+      const removeKeys = new Set([
+        'adPlacements','adBreaks','playerAds','adSlots','adSlot','adSignals','ads','ad','showAds','adInfo','adLoggingData'
+      ]);
+      const process = (value) => {
+        if (Array.isArray(value)) {
+          return value
+            .map(process)
+            .filter((v) => !(v && typeof v === 'object' && Object.keys(v).some((k) => k.toLowerCase().includes('ad'))));
+        }
+        if (value && typeof value === 'object') {
+          const out = {};
+          for (const [k, v] of Object.entries(value)) {
+            if (removeKeys.has(k) || k.toLowerCase().includes('ad')) continue;
+            out[k] = process(v);
+          }
+          return out;
+        }
+        return value;
+      };
+      return process(obj);
+    };
+    this.session.webRequest.onBeforeRequest((details, callback) => {
+      const url = details.url;
+      if (isPlayerEndpoint(url)) {
+        const filter = this.session.webRequest.filterResponseData(details.id);
+        let data = Buffer.alloc(0);
+        filter.on('data', (chunk) => {
+          data = Buffer.concat([data, chunk]);
+        });
+        filter.on('end', () => {
+          try {
+            const text = data.toString('utf-8');
+            const json = JSON.parse(text);
+            const cleaned = stripAds(json);
+            const out = Buffer.from(JSON.stringify(cleaned));
+            filter.write(out);
+          } catch (e) {
+            filter.write(data);
+          }
+          filter.end();
+        });
+      }
+      callback({});
+    });
   }
 
   /**

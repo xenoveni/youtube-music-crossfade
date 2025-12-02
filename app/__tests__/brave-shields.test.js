@@ -18,13 +18,19 @@ class MockSession {
   }
 
   get webRequest() {
+    const self = this;
     return {
       onBeforeRequest: (callback) => {
-        this.beforeRequestCallbacks.push(callback);
+        self.beforeRequestCallbacks.push(callback);
       },
       onBeforeSendHeaders: (callback) => {
-        this.beforeSendHeadersCallbacks.push(callback);
-      }
+        self.beforeSendHeadersCallbacks.push(callback);
+      },
+      filterResponseData: () => ({
+        on: () => {},
+        write: () => {},
+        end: () => {}
+      })
     };
   }
 

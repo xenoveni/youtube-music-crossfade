@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>YT Music Standalone</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="topbar">
+    <div class="xfade">
+      <span>Crossfade</span>
+      <input id="xfadeControl" type="range" min="0" max="100" value="0" />
+    </div>
+  </div>
+  <div class="grid">
+    <div class="deck" id="deck1">
+      <div class="title-area">
+        <div id="title1" class="song-title"></div>
+        <div id="author1" class="song-artist"></div>
+      </div>
+      <div class="media-row">
+        <div class="disc-wrap" id="dropDeck1">
+          <img id="disc1" class="disc" src="" />
+        </div>
+        <div class="vol right">
+          <input id="vol1" class="vol-slider" type="range" min="0" max="100" value="100" />
+        </div>
+      </div>
+      <input id="progress1" type="range" min="0" max="100" value="0" />
+      <div id="progressText1" class="progress-text"></div>
+      <div class="controls">
+        <button id="toggle1" class="toggle">▶</button>
+      </div>
+      <audio id="audio1" preload="auto"></audio>
+    </div>
+    <div class="deck" id="deck2">
+      <div class="title-area">
+        <div id="title2" class="song-title"></div>
+        <div id="author2" class="song-artist"></div>
+      </div>
+      <div class="media-row">
+        <div class="vol left">
+          <input id="vol2" class="vol-slider" type="range" min="0" max="100" value="100" />
+        </div>
+        <div class="disc-wrap" id="dropDeck2">
+          <img id="disc2" class="disc" src="" />
+        </div>
+      </div>
+      <input id="progress2" type="range" min="0" max="100" value="0" />
+      <div id="progressText2" class="progress-text"></div>
+      <div class="controls">
+        <button id="toggle2" class="toggle">▶</button>
+      </div>
+      <audio id="audio2" preload="auto"></audio>
+    </div>
+    <div class="playlist" id="playlistArea">
+      <div class="queue-list" id="queueList"></div>
+    </div>
+    <div class="search">
+      <div class="search-bar">
+        <input id="searchInput" type="text" placeholder="Search tracks" />
+        <button id="searchBtn">Search</button>
+      </div>
+      <div class="results" id="results"></div>
+    </div>
+  </div>
+  <script src="renderer.js"></script>
+</body>
+</html>

@@ -147,6 +147,9 @@ app.whenReady().then(async () => {
 app.on('window-all-closed', () => {
   // On macOS, apps typically stay open until explicitly quit
   if (process.platform !== 'darwin') {
+    if (braveShieldsManager) {
+      try { braveShieldsManager.destroy(); } catch (_) {}
+    }
     app.quit();
   }
 });
