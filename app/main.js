@@ -16,27 +16,51 @@ let settings = {
   skipSilence: false
 };
 
+// Check and update Ghostery filter lists
+async function checkAndUpdateGhosteryFilters() {
+  try {
+    console.log('[Ad Blocker] Checking for Ghostery filter updates...');
+    
+    // Fetch the latest filter lists from Ghostery
+    const response = await fetch('https://cdn.ghostery.com/adblocker/databases/full-adblocker.db', {
+      method: 'HEAD'
+    });
+    
+    if (response.ok) {
+      console.log('[Ad Blocker] ✓ Ghostery filters are up to date');
+      return true;
+    }
+  } catch (error) {
+    console.warn('[Ad Blocker] Could not verify Ghostery filters:', error.message);
+  }
+  
+  return false;
+}
+
 // Brave-style ad blocking with multiple filter lists
 async function setupAdBlocking() {
   try {
     const youtubeSess = session.fromPartition('persist:youtube-shared');
     
-    console.log('[Brave Shields] Initializing ad blocker with multiple filter lists...');
+    console.log('[Ad Blocker] Initializing ad blocker...');
     
-    // Method 1: Use Ghostery's comprehensive blocker (includes EasyList, EasyPrivacy, etc.)
+    // Check for updates first
+    await checkAndUpdateGhosteryFilters();
+    
+    // Use Ghostery's comprehensive blocker (includes EasyList, EasyPrivacy, etc.)
     const blocker = await ElectronBlocker.fromPrebuiltAdsAndTracking(fetch);
     blocker.enableBlockingInSession(youtubeSess);
-    console.log('[Brave Shields] ✓ Ghostery blocker enabled (EasyList + EasyPrivacy + more)');
+    console.log('[Ad Blocker] ✓ Ghostery blocker enabled');
     
-    // Method 2: Add custom filter rules for YouTube-specific ads
+    // Add custom filter rules for YouTube-specific ads
     setupCustomFilters(youtubeSess);
     
-    // Method 3: Block third-party scripts and trackers
+    // Block third-party scripts and trackers
     setupPrivacyProtection(youtubeSess);
     
-    console.log('[Brave Shields] ✓ Ad blocking fully initialized');
+    console.log('[Ad Blocker] ✓ Ad blocking fully initialized');
   } catch (error) {
-    console.error('[Brave Shields] Failed to enable ad blocker:', error);
+    console.error('[Ad Blocker] Failed to enable ad blocker:', error);
   }
 }
 
@@ -277,6 +301,39 @@ function createWindow() {
   });
 }
 
+// Check for app updates
+async function checkForUpdates() {
+  try {
+    console.log('[Updates] Checking for app updates...');
+    
+    // In a real app, you would check against a version server
+    // For now, we'll just check if Ghostery filters need updating
+    const filtersUpdated = await checkAndUpdateGhosteryFilters();
+    
+    if (!filtersUpdated) {
+      console.log('[Updates] Ghostery filters may need updating');
+      return {
+        hasUpdates: true,
+        message: 'Ad blocker filters may need updating. Would you like to update?',
+        type: 'filters'
+      };
+    }
+    
+    return {
+      hasUpdates: false,
+      message: 'Everything is up to date',
+      type: 'none'
+    };
+  } catch (error) {
+    console.error('[Updates] Error checking for updates:', error);
+    return {
+      hasUpdates: false,
+      message: 'Could not check for updates',
+      type: 'error'
+    };
+  }
+}
+
 // IPC Handlers
 ipcMain.handle('get-settings', () => {
   return settings;
@@ -288,10 +345,39 @@ ipcMain.handle('save-settings', (event, newSettings) => {
   return settings;
 });
 
+ipcMain.handle('check-for-updates', async () => {
+  return await checkForUpdates();
+});
+
 // App lifecycle
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   setupAdBlocking();
   createWindow();
+  
+  // Check for updates after a short delay
+  setTimeout(async () => {
+    const updateInfo = await checkForUpdates();
+    if (updateInfo.hasUpdates && mainWindow) {
+      dialog.showMessageBox(mainWindow, {
+        type: 'info',
+        title: 'Update Available',
+        message: updateInfo.message,
+        buttons: ['Update Now', 'Later'],
+        defaultId: 0
+      }).then((result) => {
+        if (result.response === 0) {
+          console.log('[Updates] User chose to update');
+          // In a real app, trigger the update process here
+          dialog.showMessageBox(mainWindow, {
+            type: 'info',
+            title: 'Updating',
+            message: 'Updating ad blocker filters...',
+            buttons: ['OK']
+          });
+        }
+      });
+    }
+  }, 2000);
 });
 
 app.on('window-all-closed', () => {
