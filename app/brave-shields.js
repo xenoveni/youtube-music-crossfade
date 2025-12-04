@@ -21,23 +21,23 @@ class BraveShieldsManager {
   async initialize() {
     try {
       console.log('[Brave Shields] Initializing ad blocker...');
-      
+
       // Check for filter list updates
       await this.updateFilterLists();
-      
+
       // Enable ad-blocking
       await this.enableAdBlocking();
-      
+
       // Setup custom YouTube-specific filters
       this.setupCustomFilters();
-      
+
       this.setupYouTubePlayerResponseFilter();
-      
+
       // Configure privacy protection headers
       this.setupPrivacyProtection();
-      
+
       this.schedulePeriodicRefresh();
-      
+
       this.initialized = true;
       console.log('[Brave Shields] ✓ Initialization complete');
     } catch (error) {
@@ -53,7 +53,7 @@ class BraveShieldsManager {
       }
       this.blocker = await ElectronBlocker.fromPrebuiltAdsAndTracking(fetch);
       this.blocker.enableBlockingInSession(this.session);
-    } catch (e) {}
+    } catch (e) { }
   }
 
   schedulePeriodicRefresh() {
@@ -73,7 +73,7 @@ class BraveShieldsManager {
     if (this.blocker) {
       try {
         this.blocker.disableBlockingInSession(this.session);
-      } catch (_) {}
+      } catch (_) { }
     }
   }
 
@@ -88,7 +88,7 @@ class BraveShieldsManager {
       console.log('[Brave Shields] ✓ Ad blocker enabled');
     } catch (error) {
       console.error('[Brave Shields] Failed to enable ad blocker:', error);
-      throw error;
+      // Don't throw - continue even if ad blocker fails
     }
   }
 
@@ -96,16 +96,31 @@ class BraveShieldsManager {
    * Setup custom filters for YouTube-specific ad domains
    */
   setupCustomFilters() {
-    // YouTube-specific ad patterns - block obvious ad serving domains
+    // YouTube-specific ad patterns - comprehensive list for 2024/2025
     const youtubeAdPatterns = [
       'doubleclick.net',
       'googleadservices.com',
-      'googlesyndication.com'
+      'googlesyndication.com',
+      'google-analytics.com',
+      'googletagmanager.com',
+      'googletagservices.com'
     ];
-    
+
+    // YouTube ad endpoints to block
+    const youtubeAdPaths = [
+      '/pagead/',
+      '/ptracking',
+      '/api/stats/ads',
+      '/api/stats/atr',
+      '/youtubei/v1/ad',
+      '/get_midroll_info',
+      '/pcs/activeview',
+      '/generate_204'
+    ];
+
     this.session.webRequest.onBeforeRequest((details, callback) => {
       const url = details.url.toLowerCase();
-      
+
       for (const pattern of youtubeAdPatterns) {
         if (url.includes(pattern)) {
           console.log('[Brave Shields] Blocked ad domain:', pattern);
@@ -113,30 +128,45 @@ class BraveShieldsManager {
           return;
         }
       }
-      
+
       try {
         const u = new URL(details.url);
         const host = u.hostname.toLowerCase();
+        const pathname = u.pathname.toLowerCase();
+
+        // Block googlevideo ad tier
         const hasCtierA = u.searchParams.get('ctier') === 'A';
         if (host.endsWith('googlevideo.com') && hasCtierA) {
           console.log('[Brave Shields] Blocked googlevideo ad-tier');
           callback({ cancel: true });
           return;
         }
-        const isYouTubeHost = host.endsWith('youtube.com') || host.endsWith('music.youtube.com');
-        const pathname = u.pathname.toLowerCase();
+
+        // Block YouTube ad endpoints
+        const isYouTubeHost = host.endsWith('youtube.com') || host.endsWith('music.youtube.com') || host.endsWith('ytimg.com');
         if (isYouTubeHost) {
-          if (pathname.includes('/pagead/') || pathname.includes('/ptracking') || pathname.includes('/youtubei/v1/ad')) {
-            console.log('[Brave Shields] Blocked YouTube ad endpoint');
+          for (const adPath of youtubeAdPaths) {
+            if (pathname.includes(adPath)) {
+              console.log('[Brave Shields] Blocked YouTube ad endpoint:', pathname);
+              callback({ cancel: true });
+              return;
+            }
+          }
+        }
+
+        // Block premium promotion endpoints
+        if (isYouTubeHost && (pathname.includes('/premium') || pathname.includes('/red'))) {
+          if (u.searchParams.has('feature') || pathname.includes('get_')) {
+            console.log('[Brave Shields] Blocked premium promotion:', pathname);
             callback({ cancel: true });
             return;
           }
         }
-      } catch (_) {}
-      
+      } catch (_) { }
+
       callback({ cancel: false });
     });
-    
+
     console.log('[Brave Shields] ✓ Custom YouTube filters enabled');
   }
 
@@ -146,8 +176,13 @@ class BraveShieldsManager {
       return u.includes('/youtubei/v1/player') || u.includes('/youtubei/v1/next');
     };
     const stripAds = (obj) => {
+      // Comprehensive list of ad-related keys to remove (2024/2025 update)
       const removeKeys = new Set([
-        'adPlacements','adBreaks','playerAds','adSlots','adSlot','adSignals','ads','ad','showAds','adInfo','adLoggingData'
+        'adPlacements', 'adBreaks', 'playerAds', 'adSlots', 'adSlot', 'adSignals',
+        'ads', 'ad', 'showAds', 'adInfo', 'adLoggingData', 'adParams', 'adSafetyReason',
+        'companion', 'companionAd', 'overlay', 'bannerPromo', 'premiumButton',
+        'upsell', 'premiumUpsell', 'ypcTrailer', 'getPremium', 'adModule',
+        'inStreamAdRenderer', 'adSlotRenderer', 'promotedSparklesWebRenderer'
       ]);
       const process = (value) => {
         if (Array.isArray(value)) {
@@ -199,23 +234,23 @@ class BraveShieldsManager {
     // Modify headers for privacy protection
     this.session.webRequest.onBeforeSendHeaders((details, callback) => {
       const headers = details.requestHeaders;
-      
+
       // Remove tracking headers
       delete headers['X-Client-Data'];
       delete headers['X-Goog-Visitor-Id'];
-      
+
       // Add privacy headers
       headers['DNT'] = '1'; // Do Not Track
       headers['Sec-GPC'] = '1'; // Global Privacy Control
-      
+
       callback({ requestHeaders: headers });
     });
-    
+
     // Set privacy-focused user agent
     this.session.setUserAgent(
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     );
-    
+
     console.log('[Brave Shields] ✓ Privacy protection enabled');
   }
 
@@ -223,23 +258,21 @@ class BraveShieldsManager {
    * Check and update filter lists
    * @returns {Promise<boolean>} True if filters are up to date
    */
+  /**
+   * Fetch and update filter lists from multiple sources
+   * @returns {Promise<boolean>} True if update was successful
+   */
   async updateFilterLists() {
     try {
-      console.log('[Brave Shields] Checking for filter updates...');
-      
-      // Fetch the latest filter lists from Ghostery
-      const response = await fetch('https://cdn.ghostery.com/adblocker/databases/full-adblocker.db', {
-        method: 'HEAD'
-      });
-      
-      if (response.ok) {
-        console.log('[Brave Shields] ✓ Filter lists are up to date');
-        return true;
-      }
-      
-      return false;
+      console.log('[Brave Shields] Fetching latest filter lists...');
+
+      // Try to update from prebuilt source
+      await this.refreshBlocker();
+
+      console.log('[Brave Shields] ✓ Filter lists updated successfully');
+      return true;
     } catch (error) {
-      console.warn('[Brave Shields] Could not verify filter lists:', error.message);
+      console.warn('[Brave Shields] Could not update filter lists:', error.message);
       return false;
     }
   }

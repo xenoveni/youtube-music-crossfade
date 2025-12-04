@@ -34,6 +34,16 @@ async function init() {
     // Load settings from Electron
     settings = await window.electronAPI.getSettings();
 
+    // Restore history - load last URLs if they exist
+    if (settings.historyUrl1 && settings.historyUrl1 !== 'https://music.youtube.com') {
+        console.log('[History] Restoring Player 1:', settings.historyUrl1);
+        webview1.loadURL(settings.historyUrl1);
+    }
+    if (settings.historyUrl2 && settings.historyUrl2 !== 'https://music.youtube.com') {
+        console.log('[History] Restoring Player 2:', settings.historyUrl2);
+        webview2.loadURL(settings.historyUrl2);
+    }
+
     // Initialize crossfade manager
     crossfadeManager = new CrossfadeManager(webview1, webview2);
     crossfadeManager.updateSettings(settings);
@@ -42,8 +52,33 @@ async function init() {
     // Set up event listeners
     setupEventListeners();
 
+    // Save history periodically
+    startHistorySaving();
+
     // Update status
     updateStatusUI('ready', 'Ready - press play to start');
+}
+
+// Save current URLs to history every 30 seconds
+function startHistorySaving() {
+    setInterval(async () => {
+        try {
+            const url1 = webview1.getURL();
+            const url2 = webview2.getURL();
+
+            const settings = await window.electronAPI.getSettings();
+
+            // Only save if URLs have changed
+            if (url1 !== settings.historyUrl1 || url2 !== settings.historyUrl2) {
+                settings.historyUrl1 = url1;
+                settings.historyUrl2 = url2;
+                await window.electronAPI.saveSettings(settings);
+                console.log('[History] Saved:', url1, url2);
+            }
+        } catch (error) {
+            // Silently handle errors
+        }
+    }, 30000); // Every 30 seconds
 }
 
 // Set up event listeners

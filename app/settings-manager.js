@@ -22,7 +22,9 @@ class SettingsManager {
       fadeOutDuration: 15,  // Range: 5-30, Default: 15
       fadeInDuration: 15,   // Range: 5-30, Default: 15
       isEnabled: false,     // Default: false
-      skipSilence: false    // Default: false
+      skipSilence: false,   // Default: false
+      historyUrl1: 'https://music.youtube.com',  // Last URL in webview1
+      historyUrl2: 'https://music.youtube.com'   // Last URL in webview2
     };
   }
 
@@ -68,7 +70,7 @@ class SettingsManager {
 
       // Write settings to file
       fs.writeFileSync(this.settingsPath, JSON.stringify(settings, null, 2), 'utf8');
-      
+
       // Update in-memory settings
       this.settings = settings;
     } catch (error) {

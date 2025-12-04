@@ -86,6 +86,40 @@ class CrossfadeManager {
                                         document.querySelector('yt-formatted-string.title') ||
                                         document.querySelector('.title');
                     const songTitle = titleElement ? titleElement.textContent.trim() : null;
+                    
+                    // ===== AD DETECTION =====
+                    // Detect if an ad is currently playing
+                    let isAd = false;
+                    
+                    // Check for ad indicators
+                    const adText = document.querySelector('.ytp-ad-text, .video-ads-text');
+                    const adOverlay = document.querySelector('.ytp-ad-overlay-container, .video-ads');
+                    const adPlayer = document.querySelector('.ad-showing, .ad-interrupting');
+                    const skipButton = document.querySelector('.ytp-ad-skip-button, .ytp-skip-ad-button');
+                    
+                    // Check if video player has ad-related classes
+                    const videoPlayer = document.querySelector('.html5-video-player');
+                    if (videoPlayer) {
+                        isAd = videoPlayer.classList.contains('ad-showing') || 
+                               videoPlayer.classList.contains('ad-interrupting') ||
+                               videoPlayer.classList.contains('ytp-ad-player-overlay-shown');
+                    }
+                    
+                    // Also check for ad indicators in DOM
+                    if (!isAd) {
+                        isAd = !!(adText || adOverlay || adPlayer || skipButton);
+                    }
+                    
+                    // Additional check: very short duration might be an ad
+                    if (!isAd && audio.duration > 0 && audio.duration < 90) {
+                        // Check if title contains typical ad indicators
+                        const lowerTitle = (songTitle || '').toLowerCase();
+                        if (lowerTitle.includes('advertisement') || 
+                            lowerTitle.includes('ad •') ||
+                            lowerTitle.includes('sponsored')) {
+                            isAd = true;
+                        }
+                    }
 
                     // Detect silence/low volume at end of track
                     let hasEndingSilence = false;
@@ -108,7 +142,8 @@ class CrossfadeManager {
                         isPlaying: !audio.paused,
                         volume: audio.volume * 100,
                         songTitle: songTitle,
-                        hasEndingSilence: hasEndingSilence
+                        hasEndingSilence: hasEndingSilence,
+                        isAd: isAd  // NEW: Ad detection flag
                     };
                 } catch (e) {
                     return null;
@@ -164,6 +199,34 @@ class CrossfadeManager {
                 if (audio && !audio.paused) {
                     audio.pause();
                     return true;
+                }
+                return false;
+            })();
+        `;
+
+        return await this.executeInWebview(webview, code);
+    }
+
+    // Try to skip an ad by clicking the skip button
+    async trySkipAd(webview) {
+        const code = `
+            (function() {
+                // Try to find and click skip button
+                const skipSelectors = [
+                    '.ytp-ad-skip-button',
+                    '.ytp-skip-ad-button',
+                    'button[aria-label*="Skip"]',
+                    '.videoAdUiSkipButton',
+                    '.ytp-ad-skip-button-modern'
+                ];
+                
+                for (const selector of skipSelectors) {
+                    const skipButton = document.querySelector(selector);
+                    if (skipButton && !skipButton.disabled) {
+                        skipButton.click();
+                        console.log('[Ad Skip] Clicked skip button:', selector);
+                        return true;
+                    }
                 }
                 return false;
             })();
@@ -241,6 +304,9 @@ class CrossfadeManager {
                 await this.setVolume(fromWebview, 0);
                 await this.setVolume(toWebview, 100);
 
+                // CRITICAL: Pause the old player immediately at volume 0
+                await this.pause(fromWebview);
+
                 // Prepare the old player for next crossfade
                 await this.prepareInactivePlayer(fromWebview, fromNum);
 
@@ -261,36 +327,84 @@ class CrossfadeManager {
 
     // Prepare inactive player for next crossfade
     async prepareInactivePlayer(webview, playerNum) {
-        // Set volume to 0 FIRST to avoid hearing the next song
+        // Set volume to 0 FIRST to avoid hearing anything
         await this.setVolume(webview, 0);
-        
-        // Pause immediately
-        await this.pause(webview);
-        
-        // Wait a bit for the current song to finish
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
-        // Skip to next song (it will load paused at volume 0)
+
+        // Skip to next song (it will load at volume 0)
         await this.skipToNext(webview);
-        
+
         // Wait for next song to start loading
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        // Ensure volume is 0 and player is paused
-        await this.setVolume(webview, 0);
-        await this.pause(webview);
-        
-        // Wait a bit more for the song to fully load
-        await new Promise(resolve => setTimeout(resolve, 1500));
-        
-        // Final check: ensure volume is 0 and paused
-        await this.setVolume(webview, 0);
-        await this.pause(webview);
-        
-        // Update last song title
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        // ===== SILENT AD PLAYTHROUGH =====
+        // Check if the next item is an ad - if so, play it silently
         const info = await this.getPlaybackInfo(webview);
-        if (info && info.songTitle) {
-            this.lastSongTitles[playerNum] = info.songTitle;
+
+        if (info && info.isAd) {
+            console.log(`[Crossfade] Player ${playerNum} has an ad - playing silently...`);
+
+            // Keep volume at 0 and play the ad
+            await this.setVolume(webview, 0);
+            await this.play(webview);
+
+            // Wait for ad to finish
+            await this.waitForAdToFinish(webview, playerNum);
+
+            console.log(`[Crossfade] Player ${playerNum} ad finished, ready for crossfade`);
+        }
+
+        // Ensure volume is 0 and player is paused (unless playing ad)
+        const currentInfo = await this.getPlaybackInfo(webview);
+        if (!currentInfo || !currentInfo.isAd) {
+            await this.setVolume(webview, 0);
+            await this.pause(webview);
+        }
+
+        // Update last song title
+        if (currentInfo && currentInfo.songTitle) {
+            this.lastSongTitles[playerNum] = currentInfo.songTitle;
+        }
+    }
+
+    // Wait for ad to finish playing (silently)
+    async waitForAdToFinish(webview, playerNum) {
+        const maxWaitTime = 60000; // Maximum 60 seconds for an ad
+        const startTime = Date.now();
+
+        while (Date.now() - startTime < maxWaitTime) {
+            await new Promise(resolve => setTimeout(resolve, 1000)); // Check every second
+
+            const info = await this.getPlaybackInfo(webview);
+
+            if (!info) {
+                console.log(`[Crossfade] Player ${playerNum} - couldn't get info`);
+                break;
+            }
+
+            // If no longer an ad, ad has finished
+            if (!info.isAd) {
+                console.log(`[Crossfade] Player ${playerNum} - ad finished, music ready`);
+                await this.pause(webview); // Pause the music that comes after ad
+                break;
+            }
+
+            // If ad is not playing, it might have ended
+            if (!info.isPlaying) {
+                console.log(`[Crossfade] Player ${playerNum} - ad stopped playing`);
+                // Try to play in case it paused
+                await this.play(webview);
+                await new Promise(resolve => setTimeout(resolve, 500));
+
+                // Check again
+                const newInfo = await this.getPlaybackInfo(webview);
+                if (newInfo && !newInfo.isAd) {
+                    await this.pause(webview);
+                    break;
+                }
+            }
+
+            // Ensure volume stays at 0 while playing ad
+            await this.setVolume(webview, 0);
         }
     }
 
@@ -304,6 +418,19 @@ class CrossfadeManager {
         const info2 = await this.getPlaybackInfo(this.webview2);
 
         if (!info1 || !info2) return;
+
+        // ===== AUTO-SKIP ADS =====
+        // Check both players for ads and auto-skip them
+        if (info1.isAd && info1.isPlaying) {
+            console.log('[Crossfade] Ad detected in Player 1 - muting and trying to skip');
+            await this.setVolume(this.webview1, 0);
+            await this.trySkipAd(this.webview1);
+        }
+        if (info2.isAd && info2.isPlaying) {
+            console.log('[Crossfade] Ad detected in Player 2 - muting and trying to skip');
+            await this.setVolume(this.webview2, 0);
+            await this.trySkipAd(this.webview2);
+        }
 
         // If both are playing, pause the one that should NOT be the leader
         // But only if we're not in the middle of a crossfade
@@ -346,17 +473,31 @@ class CrossfadeManager {
             return;
         }
 
+        // ===== CHECK INACTIVE PLAYER FOR ADS =====
+        // While one player is playing music, check if the other has an ad
+        const pausedInfo = await this.getPlaybackInfo(pausedWebview);
+        if (pausedInfo && pausedInfo.isAd && !pausedInfo.isPlaying) {
+            console.log(`[Crossfade] Inactive Player ${pausedNum} has ad - playing silently`);
+            await this.setVolume(pausedWebview, 0);
+            await this.play(pausedWebview);
+        }
+
+        // If inactive player is playing an ad, ensure volume stays at 0
+        if (pausedInfo && pausedInfo.isAd && pausedInfo.isPlaying) {
+            await this.setVolume(pausedWebview, 0);
+        }
+
         // Update status
         this.updateStatus('active', `Player ${playingNum} active`);
 
         // Check if we should trigger crossfade
         const timeUntilEnd = playingInfo.duration - playingInfo.currentTime;
-        
+
         // Don't trigger if duration is invalid or too short
         if (!playingInfo.duration || playingInfo.duration < 10) {
             return;
         }
-        
+
         // Determine trigger point based on silence detection
         let triggerPoint = this.settings.fadeOutDuration;
         if (this.settings.detectSilence && playingInfo.hasEndingSilence) {
@@ -366,7 +507,7 @@ class CrossfadeManager {
         // Update countdown
         if (timeUntilEnd <= triggerPoint && timeUntilEnd > 0) {
             this.updateCountdown(Math.ceil(timeUntilEnd));
-            
+
             // Only trigger crossfade once when we hit the trigger point
             if (timeUntilEnd <= triggerPoint && timeUntilEnd > (triggerPoint - 1)) {
                 await this.executeCrossfade(playingWebview, pausedWebview, playingNum, pausedNum);
